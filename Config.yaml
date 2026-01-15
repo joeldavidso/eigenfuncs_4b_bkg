@@ -1,0 +1,163 @@
+
+samples:
+
+  Target_Events: 1_000_000
+
+  files:
+
+    # bbbb_signal:
+    #   directory: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/raw_samples/Sig/"
+    #   files:
+    #   - "combined_skim_ggFhh_chhh1p0_mc20a__Nominal.parquet"
+    #   - "combined_skim_ggFhh_chhh1p0_mc20d__Nominal.parquet"
+    #   - "combined_skim_ggFhh_chhh1p0_mc20e__Nominal.parquet"
+    #   save_name: "bbbb_sig_1p0_run2"
+    #   selections:
+    #     - ["X_wt_tag",">1.5"]
+    #     - ["ntag", ">=4"]
+    #     - ["pass_vbf_sel","==False"]
+    #     - ["dEta_hh","<1.5"]
+    #   CRSR: "SR"
+    #   DATA: False
+
+    bb_background_SR:
+      directory: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/raw_samples/Data/"
+      files:
+      - "combined_skim_data15__Nominal.parquet"
+      - "combined_skim_data16__Nominal.parquet"
+      - "combined_skim_data17__Nominal.parquet"
+      - "combined_skim_data18__Nominal.parquet"
+      save_name: "bb_bkg_run2_SR"
+      selections:
+        - ["pass_resolved",""]
+        - ["ntag", "==2"]
+        - ["dEta_hh","<1.5"]
+      CRSR: "SR"
+      DATA: True
+
+    # bb_background_CR:
+    #   directory: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/raw_samples/Data/"
+    #   files:
+    #   - "combined_skim_data15__Nominal.parquet"
+    #   - "combined_skim_data16__Nominal.parquet"
+    #   - "combined_skim_data17__Nominal.parquet"
+    #   - "combined_skim_data18__Nominal.parquet"
+    #   save_name: "bb_bkg_run2_CR"
+    #   selections:
+    #     - ["pass_resolved",""]
+    #     - ["ntag", "==2"]
+    #     - ["dEta_hh","<1.5"]
+    #   CRSR: "CR"
+    #   DATA: True
+
+    bbb_background_SR:
+      directory: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/raw_samples/Data/"
+      files:
+      - "combined_skim_data15__Nominal.parquet"
+      - "combined_skim_data16__Nominal.parquet"
+      - "combined_skim_data17__Nominal.parquet"
+      - "combined_skim_data18__Nominal.parquet"
+      save_name: "bbb_bkg_run2_SR"
+      selections:
+        - ["pass_resolved",""]
+        - ["ntag", "==3"]
+        - ["dEta_hh","<1.5"]
+      CRSR: "SR"
+      DATA: True
+
+    # bbb_background_CR:
+    #   directory: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/raw_samples/Data/"
+    #   files:
+    #   - "combined_skim_data15__Nominal.parquet"
+    #   - "combined_skim_data16__Nominal.parquet"
+    #   - "combined_skim_data17__Nominal.parquet"
+    #   - "combined_skim_data18__Nominal.parquet"
+    #   save_name: "bbb_bkg_run2_CR"
+    #   selections:
+    #     - ["pass_resolved",""]
+    #     - ["ntag", "==3"]
+    #     - ["dEta_hh","<1.5"]
+    #   CRSR: "CR"
+    #   DATA: True
+
+    # bbbb_background_CR:
+    #   directory: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/raw_samples/Data/"
+    #   files:
+    #   - "combined_skim_data15__Nominal.parquet"
+    #   - "combined_skim_data16__Nominal.parquet"
+    #   - "combined_skim_data17__Nominal.parquet"
+    #   - "combined_skim_data18__Nominal.parquet"
+    #   save_name: "bbbb_bkg_run2_CR"
+    #   selections:
+    #     - ["pass_resolved",""]
+    #     - ["ntag", ">=4"]
+    #     - ["dEta_hh","<1.5"]
+    #   CRSR: "CR"
+    #   DATA: True
+
+    # bbbb_background_pred:
+    #   directory: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/raw_samples/Bkg/"
+    #   files:
+    #   - "df_pred__pipe_16_10xGP_mean.parquet"
+    #   - "df_pred__pipe_17_10xGP_mean.parquet"
+    #   - "df_pred__pipe_18_10xGP_mean.parquet"
+    #   save_name: "bbbb_bkg_pred_run2"
+    #   selections:
+    #     - ["dEta_hh","<1.5"]
+    #   CRSR: "SR"
+    #   DATA: False
+
+
+variables:
+  - X_hh
+  - pt_h1
+  - pt_h2
+  - eta_h1
+  - eta_h2
+  - m_hh
+  - dEta_hh
+  - m_h1
+  - m_h2
+  - X_wt_tag
+
+training:
+
+  Signal_file: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/samples/bbbb_sig_1p0_run2/"
+  Data_file: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/samples/bb_bkg_run2/"
+  Background_file: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/samples/bbbb_bkg_run2/"
+
+  Data_bb_file: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/samples/bb_bkg_run2_CR/"
+  Data_bbb_file: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/samples/bbb_bkg_run2_CR/"
+  Data_bbbb_file: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/samples/bbbb_bkg_run2_CR/"
+
+  # add_name: "ADDNAME"
+
+  # signal: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/samples/bbbb_sig_1p0_run2/"
+  # background: "/gpfs/home/epp/phubsg/bbbb_MVA_discriminator/samples/bb_bkg_run2/"
+
+  # signal_name: "bbbb_sig"
+  # background_name: "bb_data"
+
+  # signal: "/home/epp/phubsg/Postgrad/HH_BBBB/MVA_dicriminant/samples/bb_bkg_run2/"
+  # background: "/home/epp/phubsg/Postgrad/HH_BBBB/MVA_dicriminant/samples/bbbb_bkg_run2/"
+
+  # signal_name: "bb_data"
+  # background_name: "bbbb_bkg"
+
+  # signal: "/home/epp/phubsg/Postgrad/HH_BBBB/MVA_dicriminant/samples/bbbb_sig_1p0_run2/"
+  # background: "/home/epp/phubsg/Postgrad/HH_BBBB/MVA_dicriminant/samples/bbbb_bkg_run2/"
+
+  # signal_name: "bbbb_sig"
+  # background_name: "bbbb_bkg"
+
+  structure:
+    hidden_layers:
+      - 128
+      - 128
+      
+  learning:
+    optimizer: "Adam"
+    scheduler: "Cosine"
+    batch_size: 256
+    learning_rate: 1e-3
+    epochs: 900
