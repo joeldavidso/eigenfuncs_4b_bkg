@@ -1,5 +1,15 @@
 import numpy as np
 import pyarrow.parquet as pq
+from tqdm import tqdm
+import skink as skplt
+import os
+import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
+import functools as ft
+import warnings
+warnings.simplefilter("ignore", UserWarning)
+warnings.simplefilter("ignore", RuntimeWarning)
+warnings.simplefilter("ignore", DeprecationWarning)
 
 
 ###############################################################################################
@@ -21,6 +31,15 @@ def Gridpoints(m1_bins, m2_bins):
 
     return np.array(gridpoints)
 
+
+def Check_Location(filepath):    
+    if not os.path.exists(filepath):
+        os.mkdir(filepath)
+
+
+def Contour_Plot(function, xbins, ybins):
+    X, Y = np.meshgrid(xbins,ybins)
+    plt.contour(X, Y, function(X, Y), levels = [0], colors = "red", linewidths = 2, linestyles = "--")
 
 ###############################################################################################
 # Polynomial Reading/Reweighting
@@ -202,6 +221,8 @@ def edge_bool(mh1_bins, mh2_bins):
 
 def Get_Data(nj_tags, sample_filedir, year_files):
 
+    print("Reading Data")
+
     # Loop over the year files and save the m1,m2,SR and polynomial info for each event
     datasets = {}
     
@@ -209,84 +230,301 @@ def Get_Data(nj_tags, sample_filedir, year_files):
         datasets[NJ] = {}
         for year in year_files.keys():
 
-            temp_arrs = Read_File(sample_filedir+year_files[year])
-            datasets[NJ][year] = {"m_h1": temp_arrs["m_h1"],
-                                  "m_h2": temp_arrs["m_h2"],
-                                  "SR": temp_arrs["SR"]}
+            if type(year_files[year]) == str:   
+                temp_arrs = Read_Files([sample_filedir+year_files[year]], NJ)
+            else:
+                temp_arrs = Read_Files([sample_filedir+year_file for year_file in year_files[year]], NJ)
+
+            datasets[NJ][year] = {"m_h1": np.concatenate(temp_arrs["m_h1"]),
+                                  "m_h2": np.concatenate(temp_arrs["m_h2"]),
+                                  "SR": np.concatenate(temp_arrs["SR"])}
 
     return datasets
 
-def Read_File(filepaths, NJ):
+def Read_Files(files, NJ):
 
     arrays = {"m_h1": [],
               "m_h2": [],
               "SR": []}
 
-    dataset = pq.ParquetFile(file[:-8] + "_reduced_"+NJ+".parquet")
 
-    for N, batch in enumerate(tqdm(dataset.iter_batches(batch_size=10_000), desc=filepath, leave = False)):
+    for file in files:
+        dataset = pq.ParquetFile(file[:-8] + "_reduced_"+NJ+".parquet")
 
-        for key in arrays.keys():
-            arrays[key].append(list(batch[key].to_numpy))
+        for N, batch in enumerate(tqdm(dataset.iter_batches(batch_size=10_000), desc=file, leave = False)):
+
+            for key in arrays.keys():
+                arrays[key].append(np.array(batch[key]))
 
     return arrays
 
 
-def Get_MassPlane_Bins(m1_bins, m2_bins, datasets):
+def Get_MassPlane_Bins(m1_bins, m2_bins, datasets, plot = None):
     # Get The 2D MassPlane Binnings used for plotting/calculating everything
     # Also Plot MassPlane (Ratio + Counts) on 2D Histograms
-    # Include SR Edge Bin Removal
 
-    #TO DO:
-    # - validbool
-    #  - SR (XHH)
-    # - plot hists
-    # - return all hists2d
-
-    gridpoints = Gridpoints(m1_bins, m2_bins)
+    print("Getting Bin Counts")
 
     hists_counts = {}
+    hists_counts_uncs = {}
 
     # Get Hists
     for ntag in datasets.keys():
         hists_counts[ntag] = {}
+        hists_counts_uncs[ntag] = {}
         for year in datasets[ntag].keys():
             hists_counts[ntag][year] = {}
+            hists_counts_uncs[ntag][year] = {}
 
             SR_bool = datasets[ntag][year]["SR"]
 
             hists_counts[ntag][year]["SR"] = np.histogram2d(datasets[ntag][year]["m_h1"][SR_bool],
-                                                              datasets[ntag][year]["m_h2"][SR_bool],
-                                                              bins = [m1_bins[0], m2_bins[0]])[0]
+                                                            datasets[ntag][year]["m_h2"][SR_bool],
+                                                            bins = [m1_bins[0], m2_bins[0]])[0]
+            hists_counts_uncs[ntag][year]["SR"] = np.sqrt(hists_counts[ntag][year]["SR"])
 
             hists_counts[ntag][year]["CR"] = np.histogram2d(datasets[ntag][year]["m_h1"][np.logical_not(SR_bool)],
-                                                              datasets[ntag][year]["m_h2"][np.logical_not(SR_bool)],
-                                                              bins = [m1_bins[0], m2_bins[0]])[0]
+                                                            datasets[ntag][year]["m_h2"][np.logical_not(SR_bool)],
+                                                            bins = [m1_bins[0], m2_bins[0]])[0]
+            hists_counts_uncs[ntag][year]["CR"] = np.sqrt(hists_counts[ntag][year]["CR"])
 
     #Plot Hists
+    if type(plot) == str:
+        Check_Location(plot)
+        plotdir = plot + "MassPlane/"
+        Check_Location(plotdir)
+    
+        gridpoints = Gridpoints(m1_bins, m2_bins)
+
+        for ntag in datasets.keys():
+            for year in datasets[ntag].keys():
+
+                temp_plotdir = plotdir + year + "/"
+                Check_Location(temp_plotdir)                    
+                # Plotting the bin counts for each ntag
+                histplot2d = skplt.Hist2D(m1_bins, m2_bins, margins = False, cbar = True,
+                                          xlabel = r"$m_{H1} [GeV]$", ylabel = r"$m_{H2} [GeV]$")
+                histplot2d.Set(gridpoints[:,0], gridpoints[:,1], weights = (hists_counts[ntag][year]["CR"] + hists_counts[ntag][year]["SR"]).flatten(),
+                               zlabel = ntag + " counts, " + year)
+                Contour_Plot(xhh_curve,m1_bins[0], m2_bins[0])
+                histplot2d.Plot(temp_plotdir + ntag)
+
+    return hists_counts, hists_counts_uncs
 
 
+def Get_Ratio(numerator, hists_counts, m1_bins, m2_bins, plot = None):
 
-
-    return hists_counts
-
-
-def Get_Ratio(numerator, denominator, hists_counts):
+    print("Getting "+numerator+"/2b2j")
 
     hists_ratio = {}
+    hists_ratio_uncs = {}
+    validbools = {}
     for year in hists_counts[numerator].keys():
         hists_ratio[year] = {}
+        hists_ratio_uncs[year] = {}
+        validbools[year] = {}
         for region in hists_counts[numerator][year].keys():
+            temp_ratio = skplt.CalcNProp("/", [hists_counts[numerator][year][region].flatten(), np.sqrt(hists_counts[numerator][year][region].flatten())],
+                                              [hists_counts["2b2j"][year][region].flatten(), np.sqrt(hists_counts["2b2j"][year][region].flatten())])
+            hists_ratio[year][region] = temp_ratio[0]
+            hists_ratio_uncs[year][region] = temp_ratio[1]
+            validbools[year][region] = np.logical_and(hists_ratio[year][region] > 0, np.isfinite(hists_ratio[year][region]))
+            validbools[year][region] = np.logical_and(np.logical_and(hists_ratio_uncs[year][region] > 0, np.isfinite(hists_ratio_uncs[year][region])),
+                                                      validbools[year][region])
 
-            hists_ratio[year][region] = skplt.CalcNProp("/", [hists_counts[numerator][year][region].flatten(), np.sqrt(hists_counts[numerator][year][region].flatten())],
-                                                             [hists_counts[denominator][year][region].flatten(), np.sqrt(hists_counts[denominator][year][region].flatten())])
 
-    return hists_ratio, hists_ratio_uncs
+    if type(plot) == str:
+        Check_Location(plot)
+        plotdir = plot + "Ratios/"
+        Check_Location(plotdir)
+        plotdir = plotdir + "_"+numerator+"_2b2j/"
+        Check_Location(plotdir)
 
-def Single_Bin():
-    # Implement single bin code HERE
-    # No need to return anything, just print and plot
+        gridpoints = Gridpoints(m1_bins, m2_bins)
 
+        for year in hists_ratio.keys():               
+            # Plotting the ratios for each year
+            num = hists_counts[numerator][year]["CR"]+hists_counts[numerator][year]["SR"]
+
+            den = hists_counts["2b2j"][year]["CR"]+hists_counts["2b2j"][year]["SR"]
+
+            histplot2d = skplt.Hist2D(m1_bins, m2_bins, margins = False, cbar = True,
+                                      xlabel = r"$m_{H1} [GeV]$", ylabel = r"$m_{H2} [GeV]$")
+            histplot2d.Set(gridpoints[:,0], gridpoints[:,1], weights = (num/den).flatten(),
+                           zlabel = numerator+"/2b2j, " + year)
+            Contour_Plot(xhh_curve, m1_bins[0], m2_bins[0])
+            histplot2d.Plot(plotdir + year)
+
+    return hists_ratio, hists_ratio_uncs, validbools
+
+
+def Get_Polynomial_Weights(datasets, numerator, poly_orders, poly_filepath):
+
+    print("Getting "+numerator+"/2b2j weights")
+
+    polynomial_weights = {}
+    for year in year_files.keys():
+        polynomial_weights[year] = {}
+        for order in poly_orders:
+            polynomial_weights[year][str(order)] = {}
+            nom_weights, var_weights = Apply_Polynomial(datasets["2b2j"][year]["m_h1"],datasets["2b2j"][year]["m_h2"], numerator, order, poly_filepath, year)
+            polynomial_weights[year][str(order)]["nom"] = nom_weights
+            polynomial_weights[year][str(order)]["vars"] = {}
+            for var in range(int((order+1)*(order+2)*(1/2))):
+                polynomial_weights[year][str(order)]["vars"]["var"+str(var)] = var_weights[var]
+
+    return polynomial_weights
+
+
+def Get_Polynomial_Prediction(datasets, numerator, hists_counts, polynomial_weights, m1_bins, m2_bins, plot = None):
+
+    print("Getting "+numerator+" predictions")
+
+    hists_predictions = {}
+    hists_predictions_uncs = {}
+    for year in polynomial_weights.keys():
+        hists_predictions[year] = {}
+        hists_predictions_uncs[year] = {}     
+        for order in polynomial_weights[year].keys():
+            hists_predictions[year][order] = {}     
+            hists_predictions_uncs[year][order] = {}     
+                
+            SR_bool = datasets["2b2j"][year]["SR"]
+
+            hists_predictions[year][order]["SR"] = np.histogram2d(datasets["2b2j"][year]["m_h1"][SR_bool],
+                                                                  datasets["2b2j"][year]["m_h2"][SR_bool],
+                                                                  bins = [m1_bins[0], m2_bins[0]],
+                                                                  weights = polynomial_weights[year][order]["nom"][SR_bool])[0]
+
+            hists_predictions[year][order]["CR"] = np.histogram2d(datasets["2b2j"][year]["m_h1"][np.logical_not(SR_bool)],
+                                                                  datasets["2b2j"][year]["m_h2"][np.logical_not(SR_bool)],
+                                                                  bins = [m1_bins[0], m2_bins[0]],
+                                                                  weights = polynomial_weights[year][order]["nom"][np.logical_not(SR_bool)])[0]
+
+            # Calc uncs
+            temp_unc_hist2d = np.sqrt(hists_counts["2b2j"][year]["SR"])
+            for var in polynomial_weights[year][order]["vars"].keys():
+
+                temp_var_hist = np.histogram2d(datasets["2b2j"][year]["m_h1"][SR_bool],
+                                               datasets["2b2j"][year]["m_h2"][SR_bool],
+                                               bins = [m1_bins[0], m2_bins[0]],
+                                               weights = polynomial_weights[year][order]["vars"][var][SR_bool])[0]
+
+                temp_unc_hist2d = np.sqrt(temp_unc_hist2d**2 + (hists_predictions[year][order]["SR"] - temp_var_hist)**2)
+
+            hists_predictions_uncs[year][order]["SR"] = temp_unc_hist2d
+
+
+            temp_unc_hist2d = np.sqrt(hists_counts["2b2j"][year]["CR"])
+            for var in polynomial_weights[year][order]["vars"].keys():
+
+                temp_var_hist = np.histogram2d(datasets["2b2j"][year]["m_h1"][np.logical_not(SR_bool)],
+                                               datasets["2b2j"][year]["m_h2"][np.logical_not(SR_bool)],
+                                               bins = [m1_bins[0], m2_bins[0]],
+                                               weights = polynomial_weights[year][order]["vars"][var][np.logical_not(SR_bool)])[0]
+
+                temp_unc_hist2d = np.sqrt(temp_unc_hist2d**2 + (hists_predictions[year][order]["CR"] - temp_var_hist)**2)
+
+            hists_predictions_uncs[year][order]["CR"] = temp_unc_hist2d
+
+    if type(plot) == str:
+        
+        Check_Location(plot)
+        plotdir = plot + "Predictions/"
+        Check_Location(plotdir)
+        plotdir = plotdir + "_"+numerator+"_2b2j/"
+        Check_Location(plotdir)
+
+        gridpoints = Gridpoints(m1_bins, m2_bins)
+
+        for year in hists_predictions.keys():
+            for order in hists_predictions[year].keys():
+
+                plotdir_temp = plotdir + "Order-"+str(order)+"/"
+                Check_Location(plotdir_temp)
+
+                for region in ["CR", "SR"]:
+
+                    # Plotting the ratios for each year
+                    histplot2d = skplt.Hist2D(m1_bins, m2_bins, margins = False, cbar = True,
+                                            xlabel = r"$m_{H1} [GeV]$", ylabel = r"$m_{H2} [GeV]$")
+                    histplot2d.Set(gridpoints[:,0], gridpoints[:,1], weights = hists_predictions[year][order][region].flatten(),
+                                zlabel = numerator+" count predictions from order-"+str(order)+" polynomial , " + year)
+                    Contour_Plot(xhh_curve, m1_bins[0], m2_bins[0])
+                    histplot2d.Plot(plotdir_temp + year+"_"+region)
+
+    return hists_predictions, hists_predictions_uncs
+
+
+def Get_Pulls(numerator, observed, observed_uncs, predicted, predicted_uncs, plot = False):
+
+    print("Getting "+numerator+" Pulls")
+
+    pulls = {}
+    for year in observed[numerator].keys():
+        pulls[year] = {}
+        for order in predicted[year].keys():
+            pulls[year][str(order)] = {}
+
+            for region in ["SR", "CR"]:
+                pulls_temp = skplt.CalcNProp("-", [observed[numerator][year][region], observed_uncs[numerator][year][region]],
+                                                  [predicted[year][str(order)][region], predicted_uncs[year][str(order)][region]])
+                pulls[year][str(order)][region] = pulls_temp[0]/pulls_temp[1]
+
+    if type(plot) == str:
+                
+        # 2D plot
+        Check_Location(plot)
+        plotdir = plot + "Pulls_2D/"
+        Check_Location(plotdir)
+        plotdir = plotdir + "_"+numerator+"_2b2j/"
+        Check_Location(plotdir)
+        
+        for year in pulls.keys():
+            for order in pulls[year].keys():
+                for region in pulls[year][order].keys():
+
+                    plotdir = plotdir + "Order-"+str(order)+"/"
+                    Check_Location(plotdir)
+
+                    # 2D plot
+                    histplot2d = skplt.Hist2D(m1_bins, m2_bins, margins = False, cbar = True,
+                                            xlabel = r"$m_{H1} [GeV]$", ylabel = r"$m_{H2} [GeV]$")
+                    histplot2d.Set(gridpoints[:,0], gridpoints[:,1], weights = pulls[year][order][region].flatten(),
+                                zlabel = numerator+" count predictions from order-"+str(order)+" polynomial , " + year)
+                    Contour_Plot(xhh_curve, m1_bins[0], m2_bins[0])
+                    histplot2d.Plot(plotdir + year)
+
+        # 1D plot
+        Check_Location(plot)
+        plotdir = plot + "Pulls_1D/"
+        Check_Location(plotdir)
+        plotdir = plotdir + "_"+numerator+"_2b2j/"
+        Check_Location(plotdir)
+        
+        bins = skplt.get_bins(-4,4,30)
+
+        for year in pulls.keys():
+            for order in pulls[year].keys():
+                for region in pulls[year][order].keys():
+
+                    plotdir = plotdir + "Order-"+str(order)+"/"
+                    Check_Location(plotdir)
+
+                    mean, mean_SE = skplt.get_mean(pulls[year][order][region].flatten())
+                    std, std_SE = skplt.get_std(pulls[year][order][region].flatten())
+                    chi = np.sum(np.square(pulls[year][order][region].flatten()))
+                    n_region_bins = shape(pulls[year][order][region].flatten())[0]
+
+                    # 1D plot
+                    histplot = skplt.HistogramPlot(bins = bins, xlabel = r"$(Obs_{3b} - Pred_{3b})/(\sigma_{obs - Pred})$", ylabel = "No. " + region + " Bins", plot_unc = False, density = False)
+                    histplt.Add(pulls[year][order][region].flatten(), label = "Order-"+str(Ord))
+                    histplot.Text(r"$\mu$ = "+str(round(mean, 2))+r" $\pm$ "+str(round(mean_SE,4)), xpos = 0.52, ypos = 0.78)
+                    histplot.Text(r"$\sigma$ = "+str(round(std, 2))+r" $\pm$ "+str(round(std_SE,4)), xpos = 0.52, ypos = 0.73)
+                    histplot.Text(r"$\chi^2/n_{df} = $"+str(round(chi))+"/"+str(n_region_bins), xpos = 0.15, ypos = 0.82)
+                    histplot.Plot(plot_dir + "/" + region)
+
+    return pulls
 
 #########################################################################################################################
 #########################################################################################################################
@@ -315,28 +553,42 @@ if __name__ == "__main__":
 
     poly_orders = [2]
 
+    plot_dir = "plots/Massplane_Estimate_Validation/"
+
     # Get datasets
     datasets = Get_Data(nj_tags, sample_filedir, year_files)
 
     m1_bins, m2_bins = skplt.get_bins(80,180,30),skplt.get_bins(70,170,30)
-    hists_2b = Get_MassPlane_Bins(m1_bins, m2_bins, datasets)
+    hists_counts, hists_counts_uncs = Get_MassPlane_Bins(m1_bins, m2_bins, datasets, plot = plot_dir)
+
+    # Get the ratios for 3b/2b & 4b/2b
+    ratios_3b2b, ratios_3b2b_uncs, ratios_3b2b_valid = Get_Ratio("3b1j", hists_counts, m1_bins, m2_bins, plot = plot_dir)
+    ratios_4b2b, ratios_4b2b_uncs, ratios_4b2b_valid = Get_Ratio("4b", hists_counts, m1_bins, m2_bins, plot = plot_dir)
+
+    # Get the polynomial weights for each bin centre (For plotting) and event (for prediction calculations)
+    # and get the variations with the uncertainties
+    event_weights_3b2b = Get_Polynomial_Weights(datasets, "3b1j", poly_orders, polyfit_filepath)
+    event_weights_4b2b = Get_Polynomial_Weights(datasets, "4b", poly_orders, polyfit_filepath)
 
     # Get The Polynomial Nominal Predictions for all Years + Orders and save
     # as histogram of predictions + Uncertainties (from variation)
     # Also Plot The Prediction & Polynomial values in the MassPlane (Counts + Ratio)
-    Get_Polynomial_Prediction()
+    predictions_3b2b, predictions_3b2b_uncs = Get_Polynomial_Prediction(datasets, "3b1j", hists_counts, event_weights_3b2b, m1_bins, m2_bins, plot = plot_dir)
+    predictions_4b2b, predictions_4b2b_uncs = Get_Polynomial_Prediction(datasets, "4b", hists_counts, event_weights_4b2b, m1_bins, m2_bins, plot = plot_dir)
 
     # Get The pulls for each bin between observed counts 
     # Plot Pulls 
-    pulls = Get_Pulls()
-
-    # Get The Chi2 from all bins
-    # Plot Chi2s
-    Get_Chi2(pulls)
+    pulls_counts_3b2b = Get_Pulls("3b1j", hists_counts, hists_counts_uncs, predictions_3b2b, predictions_3b2b_uncs, plot = plot_dir)
+    pulls_counts_4b2b = Get_Pulls("4b", hists_counts, hists_counts_uncs, predictions_4b2b, predictions_4b2b_uncs, plot = plot_dir)
 
     # Do The Differential Plots with slices in m1 & m2
     # Slowest Plots To Make So last one
-    Get_Slices()
+    Get_Slices_Ratio()
+    Get_Slices_Counts()
 
     # Do The Unbinned non-closure test
     Single_Bin()
+
+
+
+    print("DONE!!!")

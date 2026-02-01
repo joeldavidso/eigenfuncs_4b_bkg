@@ -11,12 +11,13 @@ def Get_Cuts(batch):
     resolved_bool = np.logical_and(np.array(batch["dEta_hh"]) < 1.5, np.array(batch["pass_resolved"]))
     
     SR_bool = np.logical_and(np.array(batch["X_hh"]) < 1.6, resolved_bool)
-    
+    CR_bool = np.logical_and(np.array(batch["X_hh"]) > 1.6, resolved_bool)
+
     NJ_bools = {"2b2j": np.array(batch["ntag"]) == 2,
                 "3b1j": np.array(batch["ntag"]) == 3,
                 "4b": np.array(batch["ntag"]) >= 4}
 
-    return SR_bool, NJ_bools
+    return SR_bool, CR_bool, NJ_bools
 
 
 def Run_Over_Events(filepath):
@@ -33,10 +34,11 @@ def Run_Over_Events(filepath):
 
     # 2. Process and write batch-by-batch
     for batch in tqdm(dataset.iter_batches(batch_size=50_000), desc=filepath):
-        SR_bool, NJ_bools = Get_Cuts(batch)
+        SR_bool, CR_bool, NJ_bools = Get_Cuts(batch)
         
         for nj in categories:
-            mask = NJ_bools[nj]
+            resolved_mask = np.logical_or(SR_bool, CR_bool)
+            mask = np.logical_and(NJ_bools[nj], resolved_mask)
             if np.any(mask): # Only process if there are events for this category
                 # Create a small temporary dataframe for this batch
                 df_batch = pd.DataFrame({
