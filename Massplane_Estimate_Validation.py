@@ -265,6 +265,8 @@ def Get_MassPlane_Bins(m1_bins, m2_bins, datasets, plot = None):
 
     print("Getting Bin Counts")
 
+    xhh_mask = edge_bool(m1_bins[0], m2_bins[0])
+
     hists_counts = {}
     hists_counts_uncs = {}
 
@@ -278,15 +280,17 @@ def Get_MassPlane_Bins(m1_bins, m2_bins, datasets, plot = None):
 
             SR_bool = datasets[ntag][year]["SR"]
 
-            hists_counts[ntag][year]["SR"] = np.histogram2d(datasets[ntag][year]["m_h1"][SR_bool],
-                                                            datasets[ntag][year]["m_h2"][SR_bool],
-                                                            bins = [m1_bins[0], m2_bins[0]])[0]
-            hists_counts_uncs[ntag][year]["SR"] = np.sqrt(hists_counts[ntag][year]["SR"])
+            for region in ["CR", "SR"]:
+                validbool = SR_bool if region == "SR" else np.logical_not(SR_bool)
 
-            hists_counts[ntag][year]["CR"] = np.histogram2d(datasets[ntag][year]["m_h1"][np.logical_not(SR_bool)],
-                                                            datasets[ntag][year]["m_h2"][np.logical_not(SR_bool)],
-                                                            bins = [m1_bins[0], m2_bins[0]])[0]
-            hists_counts_uncs[ntag][year]["CR"] = np.sqrt(hists_counts[ntag][year]["CR"])
+                hists_counts[ntag][year][region] = np.histogram2d(datasets[ntag][year]["m_h1"][validbool],
+                                                                datasets[ntag][year]["m_h2"][validbool],
+                                                                bins = [m1_bins[0], m2_bins[0]])[0]
+                hists_counts_uncs[ntag][year][region] = np.sqrt(hists_counts[ntag][year][region])
+
+                hists_counts[ntag][year][region][xhh_mask] = 0
+                hists_counts_uncs[ntag][year][region][xhh_mask] = 0
+
 
     #Plot Hists
     if type(plot) == str:
@@ -370,22 +374,35 @@ def Get_Ratio(numerator, hists_counts, m1_bins, m2_bins, plot = None):
 
     print("Getting "+numerator+"/2b2j")
 
+    xhh_mask = edge_bool(m1_bins[0], m2_bins[0])
+    gridpoints = Gridpoints(m1_bins,m2_bins)
+    SR_mask = X_HH(gridpoints[:,0], gridpoints[:,1]) < 1.6
+
     hists_ratio = {}
     hists_ratio_uncs = {}
-    validbools = {}
     for year in hists_counts[numerator].keys():
         hists_ratio[year] = {}
         hists_ratio_uncs[year] = {}
-        validbools[year] = {}
         for region in hists_counts[numerator][year].keys():
             temp_ratio = skplt.CalcNProp("/", [hists_counts[numerator][year][region].flatten(), np.sqrt(hists_counts[numerator][year][region].flatten())],
                                               [hists_counts["2b2j"][year][region].flatten(), np.sqrt(hists_counts["2b2j"][year][region].flatten())])
             hists_ratio[year][region] = temp_ratio[0]
             hists_ratio_uncs[year][region] = temp_ratio[1]
-            validbools[year][region] = np.logical_and(hists_ratio[year][region] > 0, np.isfinite(hists_ratio[year][region]))
-            validbools[year][region] = np.logical_and(np.logical_and(hists_ratio_uncs[year][region] > 0, np.isfinite(hists_ratio_uncs[year][region])),
-                                                      validbools[year][region])
 
+            hists_ratio[year][region][xhh_mask.flatten()] = 0
+            hists_ratio_uncs[year][region][xhh_mask.flatten()] = 0
+
+            region_mask = SR_mask if region == "SR" else np.logical_not(SR_mask)
+            hists_ratio[year][region][region_mask] = 0
+            hists_ratio_uncs[year][region][region_mask] = 0
+
+
+            # Check for full set of valid bins
+            if not all(np.isfinite(hists_ratio[year][region].flatten()[region_mask])):
+                raise("Invalid ratio encountered in counts")
+            if not all(np.isfinite(hists_ratio_uncs[year][region].flatten()[region_mask])):
+                if region == "CR" or numerator != "4b": 
+                    raise("Invalid ratio encountered in uncertainties")
 
     if type(plot) == str:
 
@@ -443,7 +460,7 @@ def Get_Ratio(numerator, hists_counts, m1_bins, m2_bins, plot = None):
             histplot_m2.Plot(plotdir+"m2")
 
 
-    return hists_ratio, hists_ratio_uncs, validbools
+    return hists_ratio, hists_ratio_uncs
 
 
 def Get_Polynomial_Weights(datasets, numerator, poly_orders, poly_filepath):
@@ -462,6 +479,32 @@ def Get_Polynomial_Weights(datasets, numerator, poly_orders, poly_filepath):
                 polynomial_weights[year][str(order)]["vars"]["var"+str(var)] = var_weights[var]
 
     return polynomial_weights
+
+
+def Get_Bin_Weights(numerator, m1_bins, m2_bins, poly_order, poly_filepath, year_files):
+
+    gridpoints = Gridpoints(m1_bins, m2_bins)
+    SR_bool = X_HH(gridpoints[:,0], gridpoints[:,1])
+
+    binned_weights = {}
+    for year in year_files.keys():
+        binned_weights[year] = {}
+        for order in poly_orders:
+            binned_weights[year][str(order)] = {}
+
+            nom_weights, var_weights = Apply_Polynomial(gridpoints[:,0], gridpoints[:,1], numerator, order,
+                                                        poly_filepath, year)
+
+            for region in ["CR", "SR"]:
+                binned_weights[year][str(order)][region] = {"nom": [],
+                                                            "vars": {}}
+                
+                validbool = SR_bool if region == "SR" else np.logical_not(SR_bool)
+                binned_weights[year][str(order)][region]["nom"] = nom_weights[validbool]
+                for count, var in enumerate(var_weights):
+                    binned_weights[year][str(order)][region]["vars"]["var"+str(count)] = var[validbool] 
+
+    return binned_weights
 
 
 def Get_Polynomial_Prediction(datasets, numerator, hists_counts, polynomial_weights, m1_bins, m2_bins, plot = None):
@@ -627,31 +670,6 @@ def Get_Pulls(numerator, observed, observed_uncs, predicted, predicted_uncs, mh1
 
     return pulls, pulls_validbool
 
-def Get_Bin_Weights(numerator, m1_bins, m2_bins, poly_order, poly_filepath, year_files):
-
-    gridpoints = Gridpoints(m1_bins, m2_bins)
-    SR_bool = X_HH(gridpoints[:,0], gridpoints[:,1])
-
-    binned_weights = {}
-    for year in year_files.keys():
-        binned_weights[year] = {}
-        for order in poly_orders:
-            binned_weights[year][str(order)] = {}
-
-            nom_weights, var_weights = Apply_Polynomial(gridpoints[:,0], gridpoints[:,1], numerator, order,
-                                                        poly_filepath, year)
-
-            for region in ["CR", "SR"]:
-                binned_weights[year][str(order)][region] = {"nom": [],
-                                                            "vars": {}}
-                
-                validbool = SR_bool if region == "SR" else np.logical_not(SR_bool)
-                binned_weights[year][str(order)][region]["nom"] = nom_weights[validbool]
-                for count, var in enumerate(var_weights):
-                    binned_weights[year][str(order)][region]["vars"]["var"+str(count)] = var[validbool] 
-
-    return binned_weights
-
 def Single_Bin(numerator, obs_counts, obs_counts_uncs, pred_counts, counts_uncs):
 
     for year in obs_counts["2b2j"].keys():
@@ -713,7 +731,7 @@ if __name__ == "__main__":
     # Get datasets
     datasets = Get_Data(nj_tags, sample_filedir, year_files)
 
-    m1_bins, m2_bins = skplt.get_bins(80,180,20),skplt.get_bins(70,170,20)
+    m1_bins, m2_bins = skplt.get_bins(80,180,30),skplt.get_bins(70,170,30)
     hists_counts, hists_counts_uncs = Get_MassPlane_Bins(m1_bins, m2_bins, datasets, plot = plot_dir)
 
     # Get the ratios for 3b/2b & 4b/2b
