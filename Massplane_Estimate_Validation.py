@@ -627,6 +627,30 @@ def Get_Pulls(numerator, observed, observed_uncs, predicted, predicted_uncs, mh1
 
     return pulls, pulls_validbool
 
+def Get_Bin_Weights(numerator, m1_bins, m2_bins, poly_order, poly_filepath, year_files):
+
+    gridpoints = Gridpoints(m1_bins, m2_bins)
+    SR_bool = X_HH(gridpoints[:,0], gridpoints[:,1])
+
+    binned_weights = {}
+    for year in year_files.keys():
+        binned_weights[year] = {}
+        for order in poly_orders:
+            binned_weights[year][str(order)] = {}
+
+            nom_weights, var_weights = Apply_Polynomial(gridpoints[:,0], gridpoints[:,1], numerator, order,
+                                                        poly_filepath, year)
+
+            for region in ["CR", "SR"]:
+                binned_weights[year][str(order)][region] = {"nom": [],
+                                                            "vars": {}}
+                
+                validbool = SR_bool if region == "SR" else np.logical_not(SR_bool)
+                binned_weights[year][str(order)][region]["nom"] = nom_weights[validbool]
+                for count, var in enumerate(var_weights):
+                    binned_weights[year][str(order)][region]["vars"]["var"+str(count)] = var[validbool] 
+
+    return binned_weights
 
 def Single_Bin(numerator, obs_counts, obs_counts_uncs, pred_counts, counts_uncs):
 
@@ -689,12 +713,12 @@ if __name__ == "__main__":
     # Get datasets
     datasets = Get_Data(nj_tags, sample_filedir, year_files)
 
-    m1_bins, m2_bins = skplt.get_bins(80,180,30),skplt.get_bins(70,170,30)
+    m1_bins, m2_bins = skplt.get_bins(80,180,20),skplt.get_bins(70,170,20)
     hists_counts, hists_counts_uncs = Get_MassPlane_Bins(m1_bins, m2_bins, datasets, plot = plot_dir)
 
     # Get the ratios for 3b/2b & 4b/2b
-    ratios_3b2b, ratios_3b2b_uncs, ratios_3b2b_valid = Get_Ratio("3b1j", hists_counts, m1_bins, m2_bins, plot = plot_dir)
-    ratios_4b2b, ratios_4b2b_uncs, ratios_4b2b_valid = Get_Ratio("4b", hists_counts, m1_bins, m2_bins, plot = plot_dir)
+    ratios_3b2b, ratios_3b2b_uncs = Get_Ratio("3b1j", hists_counts, m1_bins, m2_bins, plot = plot_dir)
+    ratios_4b2b, ratios_4b2b_uncs = Get_Ratio("4b", hists_counts, m1_bins, m2_bins, plot = plot_dir)
 
     # Get the polynomial weights for each bin centre (For plotting) and event (for prediction calculations)
     # and get the variations with the uncertainties
