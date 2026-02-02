@@ -546,10 +546,10 @@ def Get_Polynomial_Prediction(numerator, hists_counts, polynomial_weights, m1_bi
                 hists_predictions[year][order][region] = hists_counts["2b2j"][year][region].flatten() * polynomial_weights[year][order]["nom"]
 
                 # Calc Uncertainties
-                hists_predictions_uncs[year][order][region] = np.sqrt(hists_predictions[year][order][region])
+                # hists_predictions_uncs[year][order][region] = np.sqrt(hists_predictions[year][order][region])
+                hists_predictions_uncs[year][order][region] = polynomial_weights[year][order]["nom"] * np.sqrt(hists_counts["2b2j"][year][region].flatten())
                 for var in polynomial_weights[year][order]["vars"].keys():
                     hists_predictions_uncs[year][order][region] = np.sqrt(hists_predictions_uncs[year][order][region]**2 + (hists_counts["2b2j"][year][region].flatten()*(polynomial_weights[year][order]["nom"] - polynomial_weights[year][order]["vars"][var]))**2)
-
 
     if type(plot) == str:
         
@@ -595,9 +595,12 @@ def Get_Pulls(numerator, observed, observed_uncs, predicted, predicted_uncs, m1_
             pulls[year][order] = {}
 
             for region in ["SR", "CR"]:
-                pulls_temp = skplt.CalcNProp("-", [observed[numerator][year][region].flatten(), observed_uncs[numerator][year][region].flatten()],
-                                                  [predicted[year][str(order)][region], predicted_uncs[year][str(order)][region]])
-                pulls[year][order][region] = pulls_temp[0]/pulls_temp[1]
+                # pulls_temp = skplt.CalcNProp("-", [observed[numerator][year][region].flatten(), observed_uncs[numerator][year][region].flatten()],
+                #                                   [predicted[year][str(order)][region], predicted_uncs[year][str(order)][region]])
+                
+                num = (observed[numerator][year][region].flatten() - predicted[year][str(order)][region])
+                den = np.sqrt((observed_uncs[numerator][year][region].flatten())**2 + (predicted_uncs[year][str(order)][region])**2)
+                pulls[year][order][region] = num/den
                 
 
     if type(plot) == str:
@@ -684,6 +687,42 @@ def Single_Bin(numerator, obs_counts, obs_counts_uncs, pred_counts, counts_uncs)
 
             print("Predicted "+numerator+" SR events from order-"+order+" polynomial : "+str(round(pred_total))+"+-"+str(round(pred_unc)))
 
+
+def Get_GP_Predictions(gp_filebase, gp_files, m1_bins, m2_bins):
+
+    hists_GPs = {"prediction": np.histogram2d([], [], bins = [m1_bins[0], m2_bins[0]])[0],
+                 "error_up": np.histogram2d([], [], bins = [m1_bins[0], m2_bins[0]])[0],
+                 "error_down": np.histogram2d([], [], bins = [m1_bins[0], m2_bins[0]])[0]}
+
+    for year in gp_files.keys():
+        if type(gp_files[year]) == str:
+            files_arr = [gp_files[year]]
+        else:
+            files_arr = gp_files[year]
+        for year_file in files_arr:
+            file = gp_filebase + year_file
+
+            dataset = pq.ParquetFile(file)
+            for N, batch in enumerate(tqdm(dataset.iter_batches(batch_size = 10_000), desc = file, leave = False)):                
+
+                    hists_GPs["prediction"] += np.histogram2d(np.array(batch["m_h1"]),
+                                                              np.array(batch["m_h2"]),
+                                                              bins = [m1_bins[0], m2_bins[0]],
+                                                              weights = np.array(batch["weight"]))[0]
+
+                    hists_GPs["error_up"] += np.histogram2d(np.array(batch["m_h1"]),
+                                                            np.array(batch["m_h2"]),
+                                                            bins = [m1_bins[0], m2_bins[0]],
+                                                            weights = np.array(batch["weight"]) - np.array(batch["weight_GP_up"]))[0]
+
+                    hists_GPs["error_down"] += np.histogram2d(np.array(batch["m_h1"]),
+                                                              np.array(batch["m_h2"]),
+                                                              bins = [m1_bins[0], m2_bins[0]],
+                                                              weights = - np.array(batch["weight"]) + np.array(batch["weight_GP_down"]))[0]
+
+    return hists_GPs
+
+
 #########################################################################################################################
 #########################################################################################################################
 #########################################################################################################################
@@ -710,6 +749,21 @@ if __name__ == "__main__":
                              "combined_skim_data18__Nominal.parquet"],
                     "run3": ["combined_skim_data22__Nominal.parquet",
                              "combined_skim_data23__Nominal.parquet"]
+                    }
+
+    gp_filebase = "/home/epp/phubsg/Postgrad/eigenfuncs_4b_bkg/GP_samples/"
+
+    gp_files = {
+                    "16": "df_gp_pipe_16_target_16_20xGP.parquet",
+                    "17": "df_gp_pipe_17_target_17_20xGP.parquet",
+                    "18": "df_gp_pipe_18_target_18_20xGP.parquet",
+                    "22": "df_gp_pipe_22_target_22_20xGP.parquet",
+                    "23": "df_gp_pipe_23_target_23_20xGP.parquet",        
+                    "run2": ["df_gp_pipe_16_target_16_20xGP.parquet",
+                             "df_gp_pipe_17_target_17_20xGP.parquet",
+                             "df_gp_pipe_18_target_18_20xGP.parquet"],
+                    "run3": ["df_gp_pipe_22_target_22_20xGP.parquet",
+                             "df_gp_pipe_23_target_23_20xGP.parquet"]
                     }
 
     nj_tags = ["2b2j", "3b1j", "4b"]
@@ -739,6 +793,8 @@ if __name__ == "__main__":
     predictions_3b2b, predictions_3b2b_uncs = Get_Polynomial_Prediction("3b1j", hists_counts, bin_weights_3b2b, m1_bins, m2_bins, plot = plot_dir)
     # predictions_4b2b, predictions_4b2b_uncs = Get_Polynomial_Prediction("4b", hists_counts, bin_weights_4b2b, m1_bins, m2_bins, plot = plot_dir)
 
+    GP_4b_prediction = Get_GP_Predictions(gp_filebase, gp_files, m1_bins, m2_bins)
+
     # Get The pulls for each bin between observed counts 
     # Plot Pulls 
     pulls_counts_3b2b = Get_Pulls("3b1j", hists_counts, hists_counts_uncs, predictions_3b2b, predictions_3b2b_uncs, m1_bins, m2_bins, plot = plot_dir)
@@ -753,7 +809,7 @@ if __name__ == "__main__":
     # Do The Unbinned non-closure test
     Single_Bin("3b1j", hists_counts, hists_counts_uncs, predictions_3b2b, predictions_3b2b_uncs)
     # Single_Bin("4b", hists_counts, hists_counts_uncs, predictions_4b2b, predictions_4b2b_uncs)
-
+    Single_Bin_GP("4b", hists_count, hists_counts_uncs, GP_4b_prediction)
 
 
     print("DONE!!!")
