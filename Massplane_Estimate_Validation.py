@@ -420,7 +420,7 @@ def Get_Ratio(numerator, hists_counts, m1_bins, m2_bins, plot = None):
         
         for ntag in hists_counts.keys():
 
-            histplot_m1 = skplt.HistogramPlot(bins = m1_bins, xlabel = r"m_{H1}[GeV]", ylabel = "Ratio of "+numerator+" events to 2b2j events", plot_unc = True, density = True, ratio = True)
+            histplot_m1 = skplt.HistogramPlot(bins = m1_bins, xlabel = r"m_{H1}[GeV]", ylabel = "Ratio of "+numerator+" events to 2b2j events", plot_unc = True, density = False, ratio = True)
             for year in datasets[ntag].keys():          
                 temp_numerator = np.array([np.sum((hists_counts[numerator][year]["CR"] + hists_counts[numerator][year]["SR"])[mh1,:]) for mh1 in range(len(m1_bins[1]))])
                 temp_denominator = np.array([np.sum((hists_counts["2b2j"][year]["CR"] + hists_counts["2b2j"][year]["SR"])[mh1,:]) for mh1 in range(len(m1_bins[1]))])
@@ -432,13 +432,13 @@ def Get_Ratio(numerator, hists_counts, m1_bins, m2_bins, plot = None):
 
         for ntag in datasets.keys():
 
-            histplot_m2 = skplt.HistogramPlot(bins = m2_bins, xlabel = r"m_{H2}[GeV]", ylabel = "Ratio of "+numerator+" events to 2b2j events", plot_unc = True, density = True, ratio = True)
+            histplot_m2 = skplt.HistogramPlot(bins = m2_bins, xlabel = r"m_{H2}[GeV]", ylabel = "Ratio of "+numerator+" events to 2b2j events", plot_unc = True, density = False, ratio = True)
             for year in datasets[ntag].keys():
                 temp_numerator = np.array([np.sum((hists_counts[numerator][year]["CR"] + hists_counts[numerator][year]["SR"])[:,mh2]) for mh2 in range(len(m2_bins[1]))])
                 temp_denominator = np.array([np.sum((hists_counts["2b2j"][year]["CR"] + hists_counts["2b2j"][year]["SR"])[:,mh2]) for mh2 in range(len(m2_bins[1]))])
 
                 weights = skplt.CalcNProp("/",[temp_numerator, np.sqrt(temp_numerator)], [temp_denominator, np.sqrt(temp_denominator)])
-                histplot_m2.Add(data = m1_bins[1], weights = weights[0], uncs = weights[1], label = year, reference = year == list(datasets[ntag].keys())[0])
+                histplot_m2.Add(data = m2_bins[1], weights = weights[0], uncs = weights[1], label = year, reference = year == list(datasets[ntag].keys())[0])
 
             histplot_m2.Plot(plotdir+"m2")
 
@@ -458,7 +458,7 @@ def Get_Polynomial_Weights(datasets, numerator, poly_orders, poly_filepath):
             nom_weights, var_weights = Apply_Polynomial(datasets["2b2j"][year]["m_h1"],datasets["2b2j"][year]["m_h2"], numerator, order, poly_filepath, year)
             polynomial_weights[year][str(order)]["nom"] = nom_weights
             polynomial_weights[year][str(order)]["vars"] = {}
-            for var in range(int((order+1)*(order+2)*(1/2))):
+            for var, count in enumerate(var_weights):
                 polynomial_weights[year][str(order)]["vars"]["var"+str(var)] = var_weights[var]
 
     return polynomial_weights
@@ -490,7 +490,10 @@ def Get_Polynomial_Prediction(datasets, numerator, hists_counts, polynomial_weig
                                                                   weights = polynomial_weights[year][order]["nom"][np.logical_not(SR_bool)])[0]
 
             # Calc uncs
-            temp_unc_hist2d = np.sqrt(hists_counts["2b2j"][year]["SR"])
+            temp_unc_hist2d = np.histogram2d(datasets["2b2j"][year]["m_h1"][SR_bool],
+                                             datasets["2b2j"][year]["m_h2"][SR_bool],
+                                             bins = [m1_bins[0], m2_bins[0]],
+                                             weights = (polynomial_weights[year][order]["nom"][SR_bool])**2)[0]
             for var in polynomial_weights[year][order]["vars"].keys():
 
                 temp_var_hist = np.histogram2d(datasets["2b2j"][year]["m_h1"][SR_bool],
@@ -503,7 +506,10 @@ def Get_Polynomial_Prediction(datasets, numerator, hists_counts, polynomial_weig
             hists_predictions_uncs[year][order]["SR"] = temp_unc_hist2d
 
 
-            temp_unc_hist2d = np.sqrt(hists_counts["2b2j"][year]["CR"])
+            temp_unc_hist2d = np.histogram2d(datasets["2b2j"][year]["m_h1"][np.logical_not(SR_bool)],
+                                             datasets["2b2j"][year]["m_h2"][np.logical_not(SR_bool)],
+                                             bins = [m1_bins[0], m2_bins[0]],
+                                             weights = (polynomial_weights[year][order]["nom"][np.logical_not(SR_bool)])**2)[0]
             for var in polynomial_weights[year][order]["vars"].keys():
 
                 temp_var_hist = np.histogram2d(datasets["2b2j"][year]["m_h1"][np.logical_not(SR_bool)],
@@ -621,6 +627,31 @@ def Get_Pulls(numerator, observed, observed_uncs, predicted, predicted_uncs, mh1
 
     return pulls, pulls_validbool
 
+
+def Single_Bin(numerator, obs_counts, obs_counts_uncs, pred_counts, counts_uncs):
+
+    for year in obs_counts["2b2j"].keys():
+        print("-------------------------------------------------------------------")
+        print("Year: "+year)
+
+        obs_total, obs_unc = 0,0
+        for obs_bin in obs_counts[numerator][year]["SR"].flatten():
+            if np.isfinite(obs_bin):
+                obs_total += obs_bin
+                obs_unc = np.sqrt(obs_unc**2 + np.sqrt(obs_bin)**2)
+
+        print("Observed "+numerator+" SR events: "+str(obs_total)+"+-"+str(obs_unc))
+        print("-------------------------------------")
+        pred_total, pred_unc = 0,0
+        for order in pred_counts[year].keys():
+            for pred_bin in pred_counts[year][order]["SR"].flatten():
+                if np.isfinite(pred_bin):
+                    temp_sum = skplt.CalcNProp("+",[pred_total,pred_unc], [pred_bin, np.sqrt(pred_bin)])
+                    pred_total += pred_bin
+                    pred_unc = np.sqrt(pred_unc**2 + np.sqrt(pred_bin)**2)
+
+            print("Predicted "+numerator+" SR events from order-"+order+"polynomial : "+str(pred_total)+"+-"+str(obs_unc))
+
 #########################################################################################################################
 #########################################################################################################################
 #########################################################################################################################
@@ -668,26 +699,27 @@ if __name__ == "__main__":
     # Get the polynomial weights for each bin centre (For plotting) and event (for prediction calculations)
     # and get the variations with the uncertainties
     event_weights_3b2b = Get_Polynomial_Weights(datasets, "3b1j", poly_orders, polyfit_filepath)
-    event_weights_4b2b = Get_Polynomial_Weights(datasets, "4b", poly_orders, polyfit_filepath)
+    # event_weights_4b2b = Get_Polynomial_Weights(datasets, "4b", poly_orders, polyfit_filepath)
 
     # Get The Polynomial Nominal Predictions for all Years + Orders and save
     # as histogram of predictions + Uncertainties (from variation)
     # Also Plot The Prediction & Polynomial values in the MassPlane (Counts + Ratio)
     predictions_3b2b, predictions_3b2b_uncs = Get_Polynomial_Prediction(datasets, "3b1j", hists_counts, event_weights_3b2b, m1_bins, m2_bins, plot = plot_dir)
-    predictions_4b2b, predictions_4b2b_uncs = Get_Polynomial_Prediction(datasets, "4b", hists_counts, event_weights_4b2b, m1_bins, m2_bins, plot = plot_dir)
+    # predictions_4b2b, predictions_4b2b_uncs = Get_Polynomial_Prediction(datasets, "4b", hists_counts, event_weights_4b2b, m1_bins, m2_bins, plot = plot_dir)
 
     # Get The pulls for each bin between observed counts 
     # Plot Pulls 
     pulls_counts_3b2b, pulls_counts_3b2b_validbool = Get_Pulls("3b1j", hists_counts, hists_counts_uncs, predictions_3b2b, predictions_3b2b_uncs, m1_bins, m2_bins, plot = plot_dir)
-    pulls_counts_4b2b, pulls_counts_4b2b_validbool = Get_Pulls("4b", hists_counts, hists_counts_uncs, predictions_4b2b, predictions_4b2b_uncs, m1_bins, m2_bins,  plot = plot_dir)
+    # pulls_counts_4b2b, pulls_counts_4b2b_validbool = Get_Pulls("4b", hists_counts, hists_counts_uncs, predictions_4b2b, predictions_4b2b_uncs, m1_bins, m2_bins,  plot = plot_dir)
+
 
     # Do The Differential Plots with slices in m1 & m2
     # Slowest Plots To Make So last one
-    Get_Slices_Ratio()
-    Get_Slices_Counts()
+    # Get_Slices_Ratio()
+    # Get_Slices_Counts()
 
     # Do The Unbinned non-closure test
-    Single_Bin()
+    Single_Bin("3b1j", hists_counts, hists_counts_uncs, predictions_3b2b, predictions_3b2b_uncs)
 
 
 
