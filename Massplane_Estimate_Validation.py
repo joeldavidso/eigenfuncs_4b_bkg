@@ -913,7 +913,7 @@ if __name__ == "__main__":
 
     plot_dir = "plots/Massplane_Estimate_Validation/"
 
-    m1_bins, m2_bins = skplt.get_bins(80,180,30),skplt.get_bins(70,170,30)
+    m1_bins, m2_bins = skplt.get_bins(80,180,40),skplt.get_bins(70,170,40)
 
     # Get datasets
     datasets = Get_Data(nj_tags, sample_filedir, year_files)
