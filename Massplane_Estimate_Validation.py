@@ -506,7 +506,6 @@ def Get_Bin_Weights(numerator, m1_bins, m2_bins, poly_order, poly_filepath, year
             binned_weights[year][str(order)]["vars"] = {}
             for count, var in enumerate(var_weights):
                 binned_weights[year][str(order)]["vars"]["var"+str(count)] = var 
-
                 binned_weights_uncs[year][str(order)] = np.sqrt(binned_weights_uncs[year][str(order)]**2 + (nom_weights - var)**2)
 
 
@@ -542,7 +541,6 @@ def Get_Polynomial_Prediction(numerator, hists_counts, polynomial_weights, m1_bi
     hists_predictions = {}
     hists_predictions_uncs = {}
     for year in polynomial_weights.keys():
-        print(year)
         hists_predictions[year] = {}
         hists_predictions_uncs[year] = {}     
         for order in polynomial_weights[year].keys():
@@ -555,9 +553,8 @@ def Get_Polynomial_Prediction(numerator, hists_counts, polynomial_weights, m1_bi
 
                 # Calc Uncertainties
                 hists_predictions_uncs[year][order][region] = polynomial_weights[year][order]["nom"] * np.sqrt(hists_counts["2b2j"][year][region].flatten())
-                print(region)
+
                 for var in polynomial_weights[year][order]["vars"].keys():
-                    print(np.sqrt(np.sum(hists_predictions_uncs[year][order][region]**2)))
                     hists_predictions_uncs[year][order][region] = np.sqrt(hists_predictions_uncs[year][order][region]**2 + (hists_counts["2b2j"][year][region].flatten()*(polynomial_weights[year][order]["nom"] - polynomial_weights[year][order]["vars"][var]))**2)
 
     if type(plot) == str:
@@ -591,7 +588,8 @@ def Get_Polynomial_Prediction(numerator, hists_counts, polynomial_weights, m1_bi
 
 def Get_Pulls(numerator, observed, observed_uncs, predicted, predicted_uncs, m1_bins, m2_bins, plot = False):
 
-    print("Getting "+numerator+" Pulls")
+    if type(plot) == str:            
+        print("Getting "+numerator+" Pulls")
 
     gridpoints = Gridpoints(m1_bins, m2_bins)
     xhh_mask = edge_bool(m1_bins[0], m2_bins[0]).flatten()
@@ -673,17 +671,79 @@ def Get_Pulls(numerator, observed, observed_uncs, predicted, predicted_uncs, m1_
                     mean, mean_SE = skplt.get_mean(pulls[year][order][region].flatten()[bounded_mask])
                     std, std_SE = skplt.get_std(pulls[year][order][region].flatten()[bounded_mask])
                     chi = np.sum(np.square(pulls[year][order][region].flatten()[bounded_mask]))
-                    n_region_bins = np.sum(bounded_mask)
+                    n_dof = np.sum(bounded_mask) + (int(order)+1)*(int(order)+2)/2 -1
 
                     # 1D plot
                     histplot = skplt.HistogramPlot(bins = bins, xlabel = r"$(Obs_{3b} - Pred_{3b})/(\sigma_{obs - Pred})$", ylabel = "No. " + region + " Bins", plot_unc = False, density = False)
                     histplot.Add(pulls[year][order][region].flatten()[bounded_mask], label = "Order-"+str(order))
                     histplot.Text(r"$\mu$ = "+str(round(mean, 2))+r" $\pm$ "+str(round(mean_SE,4)), xpos = 0.52, ypos = 0.78)
                     histplot.Text(r"$\sigma$ = "+str(round(std, 2))+r" $\pm$ "+str(round(std_SE,4)), xpos = 0.52, ypos = 0.73)
-                    histplot.Text(r"$\chi^2/n_{df} = $"+str(round(chi))+"/"+str(n_region_bins), xpos = 0.15, ypos = 0.82)
+                    histplot.Text(r"$\chi^2/n_{df} = $"+str(round(chi))+"/"+str(n_dof), xpos = 0.15, ypos = 0.82)
                     histplot.Plot(plotdir_temp + "/" + year+"_"+region)
 
     return pulls
+
+def Get_Chi2s(numerator, observed, observed_uncs, predicted, predicted_uncs, m1_bins, m2_bins, N_samples, plot = False):
+
+    print("Getting "+numerator+" Chi2s")
+
+    gridpoints = Gridpoints(m1_bins, m2_bins)
+    SR_mask = X_HH(gridpoints[:,0], gridpoints[:,1]) < 1.6
+
+    n_bins_region = {"SR": np.sum(SR_mask),
+                     "CR": np.sum(np.logical_not(SR_mask))}
+
+    #define chi2 dictionaries
+    chi2s = {}
+    for year in observed[numerator].keys():
+        chi2s[year] = {}
+        for order in predicted[year].keys():
+            chi2s[year][order] = {}
+            for region in observed[numerator][year].keys():
+                chi2s[year][order][region] = []
+
+    for sample in range(N_samples):
+        # Poisson sample the observed dataset
+        temp_observed, temp_observed_uncs = {numerator: {}}, {numerator: {}}
+        for year in observed[numerator].keys():
+            temp_observed[numerator][year] = {}
+            temp_observed_uncs[numerator][year] = {}
+            for region in observed[numerator][year].keys():
+                    temp_observed[numerator][year][region] = np.random.poisson(observed[numerator][year][region])
+                    temp_observed_uncs[numerator][year][region] = np.sqrt(temp_observed[numerator][year][region])
+
+        pulls = Get_Pulls(numerator, temp_observed, temp_observed_uncs, predicted, predicted_uncs, m1_bins, m2_bins)
+
+        for year in chi2s.keys():
+            for order in chi2s[year].keys():
+                chi2s[year][order]["CR"].append(np.sum(np.square(pulls[year][order][region].flatten()[np.logical_not(SR_mask)])))
+                chi2s[year][order]["SR"].append(np.sum(np.square(pulls[year][order][region].flatten()[SR_mask])))
+
+    if type(plot) == str:
+
+        plotdir = plot + "Chi2s/"
+        Check_Location(plotdir)
+
+        for year in chi2s.keys():
+            for order in chi2s[year].keys():
+                plotdir_temp = plotdir + order + "/"
+                Check_Location(plotdir_temp)
+
+                for region in chi2s[year][order].keys():
+
+                    ndof = n_bins_region[region] + (int(order)+1)*(int(order)+2)/2 - 1
+                    chi2s[year][order][region] = np.array(chi2s[year][order][region])/ndof
+                    mean, mean_SE = skplt.get_mean(chi2s[year][order][region])
+                    std, std_SE = skplt.get_std(chi2s[year][order][region])
+
+                    # 1D plot
+                    histplot = skplt.HistogramPlot(bins = skplt.get_bins(0,4,30), xlabel = r"$\chi^2$", ylabel = "No. " + region + " Bins", plot_unc = False, density = False)
+                    histplot.Add(chi2s[year][order][region], label = "Order-"+str(order))
+                    histplot.Text(r"$\mu$ = "+str(round(mean, 2))+r" $\pm$ "+str(round(mean_SE,4)), xpos = 0.52, ypos = 0.78)
+                    histplot.Text(r"$\sigma$ = "+str(round(std, 2))+r" $\pm$ "+str(round(std_SE,4)), xpos = 0.52, ypos = 0.73)
+                    histplot.Plot(plotdir_temp + "/" + year+"_"+region)
+
+    return chi2s
 
 def Single_Bin(numerator, obs_counts, obs_counts_uncs, pred_counts, pred_counts_uncs):
 
@@ -922,7 +982,7 @@ if __name__ == "__main__":
 
 
     # Get the ratios for 3b/2b & 4b/2b
-    ratios_3b2b, ratios_3b2b_uncs = Get_Ratio("3b1j", hists_counts, m1_bins, m2_bins, plot = plot_dir)
+    # ratios_3b2b, ratios_3b2b_uncs = Get_Ratio("3b1j", hists_counts, m1_bins, m2_bins, plot = plot_dir)
     # ratios_4b2b, ratios_4b2b_uncs = Get_Ratio("4b", hists_counts, m1_bins, m2_bins, plot = plot_dir)
 
     # Get the polynomial weights for each bin centre (For plotting) and event (for prediction calculations)
@@ -940,8 +1000,11 @@ if __name__ == "__main__":
 
     # Get The pulls for each bin between observed counts 
     # Plot Pulls 
-    pulls_counts_3b2b = Get_Pulls("3b1j", hists_counts, hists_counts_uncs, predictions_3b2b, predictions_3b2b_uncs, m1_bins, m2_bins, plot = plot_dir)
+    # pulls_counts_3b2b = Get_Pulls("3b1j", hists_counts, hists_counts_uncs, predictions_3b2b, predictions_3b2b_uncs, m1_bins, m2_bins, plot = plot_dir)
     # pulls_counts_4b2b = Get_Pulls("4b", hists_counts, hists_counts_uncs, predictions_4b2b, predictions_4b2b_uncs, m1_bins, m2_bins,  plot = plot_dir)
+
+    # Get Chi2s
+    chi2s_3b2b = Get_Chi2s("3b1j", hists_counts, hists_counts_uncs, predictions_3b2b, predictions_3b2b_uncs, m1_bins, m2_bins, 1000, plot = plot_dir)
 
     # Do The Unbinned non-closure test
     Single_Bin("3b1j", hists_counts, hists_counts_uncs, predictions_3b2b, predictions_3b2b_uncs)
@@ -950,7 +1013,8 @@ if __name__ == "__main__":
 
     # Do The Differential Plots with slices in m1 & m2
     # Slowest Plots To Make So last one
-    Get_Slices_Ratio("3b1j", 10, m1_bins, m2_bins, ratios_3b2b, ratios_3b2b_uncs, bin_weights_3b2b, bin_weights_3b2b_uncs, plot_dir)
+    for mh_value in range(m1_bins[1].shape[0]):
+        Get_Slices_Ratio("3b1j", mh_value, m1_bins, m2_bins, ratios_3b2b, ratios_3b2b_uncs, bin_weights_3b2b, bin_weights_3b2b_uncs, plot_dir)
     # Get_Slices_Counts()
 
     # def Get_Slices_Ratio(numerator, mh_bin, m1_bins, m2_bins, ratio_hists, ratio_hists_uncs, polynomial_weights, plot):
